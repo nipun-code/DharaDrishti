@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Design tokens: deep navy + saffron accent; serif for legal text, sans for UI. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+
+  --color-navy-50: #f1f4fa;
+  --color-navy-100: #dde4f1;
+  --color-navy-300: #8fa3c9;
+  --color-navy-700: #1f3363;
+  --color-navy-800: #16254a;
+  --color-navy-900: #0f1a36;
+  --color-navy-950: #0a1226;
+
+  --color-saffron-400: #ffac4d;
+  --color-saffron-500: #f7931e;
+  --color-saffron-600: #c86a00;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-navy-50 text-navy-900 font-sans antialiased dark:bg-navy-950 dark:text-navy-50;
+}

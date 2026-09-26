@@ -1,0 +1,33 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Data (bare act PDFs are user-provided and may be large)
+data/raw/*
+!data/raw/.gitkeep
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local-only project notes and assistant tooling (not part of the codebase)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+SPEC.md
