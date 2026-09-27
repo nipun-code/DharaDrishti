@@ -1,8 +1,10 @@
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator
+import zlib
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
 # Must be set before app modules that call get_settings() at import time (e.g. the ARQ worker).
 # Values here are local test placeholders, not real credentials.
@@ -19,6 +21,7 @@ from pydantic import SecretStr
 from app.api.deps import get_db_session, get_health_service, get_user_repository
 from app.core.config import Settings
 from app.db.models import User
+from app.db.models.types import EMBEDDING_DIM
 from app.main import create_app
 from app.services.health import HealthService
 
@@ -59,6 +62,36 @@ class InMemoryUserRepository:
         return obj
 
 
+class FakeEmbedder:
+    """Deterministic stand-in for the sentence-transformers model (no downloads in tests)."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        vectors = []
+        for text in texts:
+            vector = [0.0] * EMBEDDING_DIM
+            vector[zlib.crc32(text.encode()) % EMBEDDING_DIM] = 1.0
+            vectors.append(vector)
+        return vectors
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
+
+
+class FakeJobQueue:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.enqueued: list[uuid.UUID] = []
+        self.fail = fail
+
+    async def enqueue_ingestion(self, document_id: uuid.UUID) -> None:
+        if self.fail:
+            raise ConnectionError("redis down")
+        self.enqueued.append(document_id)
+
+
 class FakeUnitOfWork:
     def __init__(self) -> None:
         self.commits = 0
@@ -72,7 +105,7 @@ class FakeUnitOfWork:
 
 
 @pytest.fixture
-def settings() -> Settings:
+def settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url=SecretStr("postgresql+asyncpg://test:test@localhost:1/test"),
         redis_url="redis://localhost:1/0",
@@ -80,6 +113,9 @@ def settings() -> Settings:
         health_check_timeout_seconds=0.2,
         jwt_secret_key=SecretStr(TEST_JWT_SECRET),
         bcrypt_rounds=4,  # minimum cost: keeps the suite fast
+        upload_dir=tmp_path / "uploads",
+        max_upload_mb=1,
+        data_dir=tmp_path / "data",
         _env_file=None,
     )
 

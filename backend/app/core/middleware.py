@@ -70,3 +70,25 @@ class RequestContextMiddleware:
                 },
             )
             request_id_ctx.reset(token)
+
+
+class BodySizeLimitMiddleware:
+    """Reject requests whose declared Content-Length exceeds `max_bytes` with 413, before the
+    body is read. (The upload service also enforces the limit on the bytes actually received,
+    which covers clients that don't send Content-Length.)"""
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            declared = Headers(scope=scope).get("content-length", "")
+            if declared.isdigit() and int(declared) > self.max_bytes:
+                limit_mb = self.max_bytes // (1024 * 1024)
+                response = error_response(
+                    413, "payload_too_large", f"The request body exceeds about {limit_mb} MB."
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)

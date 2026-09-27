@@ -48,6 +48,18 @@ class ConflictError(AppError):
     default_message = "The request conflicts with the current state of the resource."
 
 
+class PayloadTooLargeError(AppError):
+    status_code = 413
+    code = "payload_too_large"
+    default_message = "The request body is too large."
+
+
+class UnsupportedMediaTypeError(AppError):
+    status_code = 415
+    code = "unsupported_media_type"
+    default_message = "Unsupported file type."
+
+
 class ServiceUnavailableError(AppError):
     status_code = 503
     code = "service_unavailable"

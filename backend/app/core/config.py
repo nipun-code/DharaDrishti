@@ -1,9 +1,10 @@
 """Application settings, loaded from environment variables / .env via pydantic-settings."""
 
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Literal, Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -51,6 +52,27 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < MIN_JWT_SECRET_LENGTH:
             raise ValueError(f"JWT_SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters")
         return value
+
+    # --- Ingestion ---------------------------------------------------------
+    max_upload_mb: int = Field(default=25, ge=1, le=500)
+    upload_dir: Path = Field(default=Path("uploads"), description="Where uploaded PDFs are kept.")
+    data_dir: Path = Field(default=Path("../data"), description="User-provided data (mappings).")
+    embedding_model_name: str = "BAAI/bge-small-en-v1.5"
+    embedding_batch_size: int = Field(default=32, ge=1)
+    embedding_device: str = "cpu"
+    chunk_max_tokens: int = Field(default=600, ge=50)
+    chunk_overlap_tokens: int = Field(default=80, ge=0)
+    ingestion_job_timeout_seconds: int = Field(default=1800, ge=60)
+
+    @model_validator(mode="after")
+    def _overlap_smaller_than_chunk(self) -> Self:
+        if self.chunk_overlap_tokens >= self.chunk_max_tokens // 2:
+            raise ValueError("CHUNK_OVERLAP_TOKENS must be less than half of CHUNK_MAX_TOKENS")
+        return self
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
 
     @property
     def is_production(self) -> bool:

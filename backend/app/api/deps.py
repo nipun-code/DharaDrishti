@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from typing import Annotated, cast
 
+from arq.connections import ArqRedis
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
@@ -14,7 +15,10 @@ from app.db.models import User, UserRole
 from app.repositories.health import DatabaseProbe, RedisProbe
 from app.repositories.users import UserRepository
 from app.services.auth import AuthService
+from app.services.documents import DocumentService
 from app.services.health import HealthService
+from app.services.ingestion.storage import DocumentStorage
+from app.workers.queue import ArqJobQueue, JobQueue
 
 
 def get_settings_dep(request: Request) -> Settings:
@@ -95,3 +99,24 @@ async def require_admin(user: CurrentUserDep) -> User:
 
 
 AdminUserDep = Annotated[User, Depends(require_admin)]
+
+
+# ---------------------------------------------------------------- documents
+def get_job_queue(request: Request) -> JobQueue:
+    return ArqJobQueue(cast(ArqRedis, request.app.state.arq))
+
+
+def get_document_storage(settings: SettingsDep) -> DocumentStorage:
+    return DocumentStorage(settings.upload_dir)
+
+
+def get_document_service(
+    session: DbSessionDep,
+    storage: Annotated[DocumentStorage, Depends(get_document_storage)],
+    queue: Annotated[JobQueue, Depends(get_job_queue)],
+    settings: SettingsDep,
+) -> DocumentService:
+    return DocumentService(session=session, storage=storage, queue=queue, settings=settings)
+
+
+DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]

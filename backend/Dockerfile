@@ -4,20 +4,28 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HOME=/models \
+    UPLOAD_DIR=/uploads \
+    DATA_DIR=/data
 
-# Extras to install: "dev" gives pytest/ruff/mypy inside the container (used by
-# `docker compose exec api pytest`). Add ",ml" once ingestion/retrieval phases need the models.
-ARG EXTRAS=dev
+# "dev": pytest/ruff/mypy inside the container (used by `docker compose exec api pytest`).
+# "ml": sentence-transformers + PyMuPDF for ingestion.
+ARG EXTRAS=dev,ml
 
 WORKDIR /app
 
-RUN groupadd --system app && useradd --system --gid app --create-home app
+RUN groupadd --system app && useradd --system --gid app --create-home app \
+    && mkdir -p /models /uploads /data \
+    && chown app:app /models /uploads
 
-# Install dependencies first (cached layer): a stub package lets pip resolve the project.
+# CPU-only PyTorch first: the default wheel bundles CUDA (~2.5 GB) that we don't need.
+RUN pip install --upgrade pip \
+    && pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install dependencies (cached layer): a stub package lets pip resolve the project.
 COPY pyproject.toml ./
 RUN mkdir app && touch app/__init__.py \
-    && pip install --upgrade pip \
     && pip install -e ".[${EXTRAS}]"
 
 COPY . .

@@ -4,6 +4,10 @@
 x-backend-env: &backend-env
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
   REDIS_URL: redis://redis:6379/0
+  # Container paths (override host-oriented values that may be in .env).
+  UPLOAD_DIR: /uploads
+  DATA_DIR: /data
+  HF_HOME: /models
   # Bind mounts from Windows/macOS hosts don't emit inotify events; poll so --reload works.
   WATCHFILES_FORCE_POLLING: "true"
 
@@ -53,9 +57,12 @@ services:
       --reload --reload-dir app --no-access-log
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
+    volumes: &backend-volumes
       - ./backend:/app
       - /app/.venv # keep a host-side virtualenv out of the container
+      - uploads:/uploads # uploaded PDFs, shared with the worker
+      - hf_models:/models # embedding model cache (downloaded once)
+      - ./data:/data:ro # user-provided data: raw PDFs, mappings CSV, eval set
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,9 +81,7 @@ services:
     command: ["python", "-m", "app.workers.worker"]
     healthcheck:
       disable: true
-    volumes:
-      - ./backend:/app
-      - /app/.venv
+    volumes: *backend-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,3 +106,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads:
+  hf_models:

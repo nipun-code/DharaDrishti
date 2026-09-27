@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CHAR, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    CHAR,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -28,8 +38,14 @@ class Document(Base):
     chunks_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # Ingestion progress, 0-100 (not in the original data model; needed for progress display).
+    progress: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = created_at_column()
     # Python-side onupdate so the new value is known without a round trip (safe under asyncio).
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=utcnow, nullable=False
     )
+
+    __table_args__ = (CheckConstraint("progress BETWEEN 0 AND 100", name="progress_range"),)
