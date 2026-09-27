@@ -95,6 +95,9 @@ services:
     environment:
       VITE_API_PROXY_TARGET: http://api:8000
       VITE_USE_POLLING: "true"
+    # node_modules lives in an anonymous volume that survives rebuilds, so sync it on start
+    # (fast no-op when package-lock.json hasn't changed).
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:
