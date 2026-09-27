@@ -15,9 +15,14 @@ from app.db.models import User, UserRole
 from app.repositories.health import DatabaseProbe, RedisProbe
 from app.repositories.users import UserRepository
 from app.services.auth import AuthService
+from app.services.cache.exact import AnswerCache
 from app.services.documents import DocumentService
 from app.services.health import HealthService
 from app.services.ingestion.storage import DocumentStorage
+from app.services.limits import RateLimiter, TokenBudget
+from app.services.llm.fallback import LLMClient
+from app.services.query.pipeline import QueryPipeline
+from app.services.query.store import PostgresQueryStore, QueryStore
 from app.services.retrieval.hybrid import HybridRetriever, QueryEmbedder
 from app.services.retrieval.reranker import Reranker
 from app.services.retrieval.search import PostgresSearchBackend
@@ -146,3 +151,66 @@ def get_retriever(
 
 
 RetrieverDep = Annotated[HybridRetriever, Depends(get_retriever)]
+
+
+# ---------------------------------------------------------------- query answering
+def get_llm(request: Request) -> LLMClient:
+    return cast(LLMClient, request.app.state.llm)
+
+
+def get_token_budget(redis: RedisDep, settings: SettingsDep) -> TokenBudget:
+    return TokenBudget(redis, daily_limit=settings.daily_token_budget)
+
+
+def get_rate_limiter(redis: RedisDep) -> RateLimiter:
+    return RateLimiter(redis)
+
+
+def get_answer_cache(redis: RedisDep, settings: SettingsDep) -> AnswerCache:
+    return AnswerCache(
+        redis, ttl_seconds=settings.cache_ttl_seconds, enabled=settings.cache_enabled
+    )
+
+
+def get_query_store(request: Request) -> QueryStore:
+    return PostgresQueryStore(
+        cast(async_sessionmaker[AsyncSession], request.app.state.session_factory)
+    )
+
+
+TokenBudgetDep = Annotated[TokenBudget, Depends(get_token_budget)]
+
+
+async def enforce_query_limits(
+    request: Request,
+    user: CurrentUserDep,
+    settings: SettingsDep,
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    budget: TokenBudgetDep,
+) -> User:
+    """Per-user and per-IP rate limits, then the user's daily token budget (429 on breach)."""
+    client_ip = request.client.host if request.client else "unknown"
+    await limiter.hit(f"user:{user.id}", settings.rate_limit_user_per_minute)
+    await limiter.hit(f"ip:{client_ip}", settings.rate_limit_ip_per_minute)
+    await budget.check(user.id)
+    return user
+
+
+QueryUserDep = Annotated[User, Depends(enforce_query_limits)]
+
+
+def get_query_pipeline(
+    *,
+    settings: SettingsDep,
+    llm: Annotated[LLMClient, Depends(get_llm)],
+    retriever: RetrieverDep,
+    cache: Annotated[AnswerCache, Depends(get_answer_cache)],
+    budget: TokenBudgetDep,
+    store: Annotated[QueryStore, Depends(get_query_store)],
+) -> QueryPipeline:
+    return QueryPipeline(
+        settings=settings, llm=llm, retriever=retriever, cache=cache, budget=budget, store=store
+    )
+
+
+QueryPipelineDep = Annotated[QueryPipeline, Depends(get_query_pipeline)]

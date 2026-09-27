@@ -80,6 +80,57 @@ class Settings(BaseSettings):
     max_section_refs: int = Field(default=5, ge=1, le=20)
     hnsw_ef_search: int = Field(default=100, ge=10, le=1000)
 
+    # --- LLM providers (model names only from env; unset provider = skipped) --
+    llm_providers: str = Field(
+        default="groq,gemini,ollama", description="Fallback order, comma-separated."
+    )
+    groq_api_key: SecretStr | None = None
+    groq_model: str | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str | None = None
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    ollama_model: str | None = None
+    ollama_base_url: str = "http://host.docker.internal:11434"
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_max_attempts: int = Field(default=3, ge=1, le=10, description="Per provider.")
+    llm_backoff_base_seconds: float = Field(default=0.5, ge=0)
+    llm_backoff_max_seconds: float = Field(default=8.0, ge=0)
+
+    # --- Generation ----------------------------------------------------------
+    answer_max_tokens: int = Field(default=800, ge=50, le=8000)
+    answer_temperature: float = Field(default=0.1, ge=0, le=2)
+    query_rewrite_enabled: bool = True
+    faithfulness_check_enabled: bool = True
+    context_max_tokens: int = Field(default=3000, ge=200)
+
+    # --- Guardrails ----------------------------------------------------------
+    query_min_chars: int = Field(default=3, ge=1)
+    query_max_chars: int = Field(default=1000, ge=10, le=10000)
+    injection_block_score: float = Field(default=1.0, gt=0)
+    topic_classifier_enabled: bool = True
+    rerank_refusal_threshold: float = Field(
+        default=0.2, ge=0, le=1, description="Refuse if the best re-rank score is below this."
+    )
+
+    # --- Cache, limits, HTTP ----------------------------------------------------
+    cache_enabled: bool = True
+    cache_ttl_seconds: int = Field(default=86400, ge=1)
+    rate_limit_user_per_minute: int = Field(default=20, ge=1)
+    rate_limit_ip_per_minute: int = Field(default=40, ge=1)
+    daily_token_budget: int = Field(default=100_000, ge=1000)
+    cors_origins: str = Field(
+        default="http://localhost:5173", description="Comma-separated allowed origins."
+    )
+
+    @property
+    def llm_provider_order(self) -> list[str]:
+        return [p.strip().lower() for p in self.llm_providers.split(",") if p.strip()]
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> Self:
         if self.chunk_overlap_tokens >= self.chunk_max_tokens // 2:

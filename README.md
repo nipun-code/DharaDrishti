@@ -3,7 +3,7 @@
 AI legal research assistant for Indian statutes (BNS, BNSS, BSA, IPC, IT Act, …), built on hybrid
 RAG over PostgreSQL full-text search + pgvector.
 
-> Status: Phase 3 (hybrid retrieval). Full README (architecture, guardrails, eval results) comes later.
+> Status: Phase 4 (LLM layer, generation, guardrails). Full README (architecture, guardrails, eval results) comes later.
 
 ## Quick start (Docker)
 

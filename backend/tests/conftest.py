@@ -1,10 +1,12 @@
 import asyncio
 import os
+import re
 import uuid
 import zlib
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, ClassVar
 
 # Must be set before app modules that call get_settings() at import time (e.g. the ARQ worker).
 # Values here are local test placeholders, not real credentials.
@@ -24,6 +26,7 @@ from app.db.models import User
 from app.db.models.types import EMBEDDING_DIM
 from app.main import create_app
 from app.services.health import HealthService
+from app.services.llm.base import LLMRequest, LLMResponse
 
 TEST_JWT_SECRET = "test-only-jwt-secret-key-0123456789abcdef"
 
@@ -185,3 +188,89 @@ async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+# ---------------------------------------------------------------- Phase 4 fakes
+_WORD_RE = re.compile(r"\S+\s*")
+
+
+class FakeLLM:
+    """Scripted LLM client. Replies are chosen by LLMRequest.purpose; a list of replies is
+    consumed in order (the last one repeats). An Exception reply is raised."""
+
+    DEFAULTS: ClassVar[dict[str, str]] = {
+        "topic": '{"category": "legal", "reason": "law"}',
+        "rewrite": '{"queries": ["legal phrasing of the question"]}',
+        "answer": "The placeholder rule says widgets need registration [1].",
+        "answer_retry": "Strictly, the placeholder rule requires registration [1].",
+        "faithfulness": '{"faithful": true, "unsupported_claims": []}',
+    }
+
+    def __init__(self, **script: str | Exception | list[str | Exception]) -> None:
+        merged: dict[str, Any] = {**self.DEFAULTS, **script}
+        self.script = {k: list(v) if isinstance(v, list) else [v] for k, v in merged.items()}
+        self.requests: list[LLMRequest] = []
+
+    @property
+    def purposes(self) -> list[str]:
+        return [r.purpose for r in self.requests]
+
+    def _reply(self, request: LLMRequest) -> LLMResponse:
+        self.requests.append(request)
+        replies = self.script[request.purpose]
+        reply = replies.pop(0) if len(replies) > 1 else replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        return LLMResponse(reply, "fake", "fake-model", 10, len(reply.split()))
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        return self._reply(request)
+
+    async def stream(self, request: LLMRequest) -> AsyncIterator[str | LLMResponse]:
+        response = self._reply(request)
+        for piece in _WORD_RE.findall(response.text):
+            yield piece
+        yield response
+
+
+class FakeRedis:
+    """The handful of async Redis commands the app uses, in memory (TTL ignored)."""
+
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {}
+        self.expiries: dict[str, int] = {}
+
+    async def get(self, key: str) -> Any:
+        return self.data.get(key)
+
+    async def set(self, key: str, value: Any, ex: int | None = None, nx: bool = False) -> bool:
+        if nx and key in self.data:
+            return False
+        self.data[key] = value
+        if ex:
+            self.expiries[key] = ex
+        return True
+
+    async def incr(self, key: str) -> int:
+        return await self.incrby(key, 1)
+
+    async def incrby(self, key: str, amount: int) -> int:
+        self.data[key] = int(self.data.get(key) or 0) + amount
+        return int(self.data[key])
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        self.expiries[key] = seconds
+        return True
+
+
+class MemoryQueryStore:
+    def __init__(self, mapped: set[str] | None = None) -> None:
+        self.entries: list[Any] = []
+        self.mapped = mapped or set()
+
+    async def log(self, entry: Any) -> uuid.UUID:
+        self.entries.append(entry)
+        return uuid.uuid4()
+
+    async def mapped_sections(self, numbers: Any) -> set[str]:
+        return self.mapped & set(numbers)

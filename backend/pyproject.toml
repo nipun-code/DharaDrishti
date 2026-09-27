@@ -63,9 +63,11 @@ known-first-party = ["app", "tests"]
 known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "PLR2004", "RUF001", "ASYNC240"]
+"tests/**" = ["S101", "S105", "S106", "S311", "PLR2004", "RUF001", "ASYNC240"]
 # These modules match en/em dashes used in bare-act headings on purpose.
 "app/services/ingestion/{legal_chunker,pdf_parser}.py" = ["RUF001"]
+# Prompt prose reads better unwrapped.
+"app/services/generation/prompts.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -7,18 +7,25 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from arq.connections import ArqRedis
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import health
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
+from app.core.middleware import (
+    BodySizeLimitMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.db.redis import create_redis
 from app.db.session import create_engine, create_session_factory
 from app.services.ingestion.embedder import SentenceTransformerEmbedder
+from app.services.llm.factory import build_llm
 from app.services.retrieval.reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
@@ -45,6 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             device=settings.embedding_device,
             query_instruction=settings.embedding_query_instruction,
         )
+        app.state.http = httpx.AsyncClient()
+        app.state.llm = build_llm(settings, app.state.http)
         app.state.reranker = CrossEncoderReranker(
             settings.reranker_model_name,
             device=settings.embedding_device,
@@ -55,6 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await app.state.http.aclose()
             await app.state.arq.aclose()
             await app.state.redis.aclose()
             await app.state.engine.dispose()
@@ -69,10 +79,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
 
-    # Last added = outermost: request ids are assigned before the size check can reject.
+    # Last added = outermost. Order (outer -> inner): request id, security headers (so even
+    # CORS preflights and 413s get them), CORS, body-size limit.
     app.add_middleware(
         BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + _FORM_OVERHEAD
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", settings.request_id_header],
+        expose_headers=[settings.request_id_header, "Retry-After"],
+        max_age=600,
+    )
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
     app.add_middleware(RequestContextMiddleware, header_name=settings.request_id_header)
     register_exception_handlers(app)
 

@@ -1,6 +1,6 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.db.models import Act
+from app.db.models import Act, Chunk
 from app.repositories.base import BaseRepository
 
 
@@ -13,3 +13,12 @@ class ActRepository(BaseRepository[Act]):
     async def list_all(self) -> list[Act]:
         result = await self._session.scalars(select(Act).order_by(Act.short_code))
         return list(result)
+
+    async def list_with_chunk_counts(self) -> list[tuple[Act, int]]:
+        stmt = (
+            select(Act, func.count(Chunk.id))
+            .outerjoin(Chunk, Chunk.act_id == Act.id)
+            .group_by(Act.id)
+            .order_by(Act.status, Act.short_code)
+        )
+        return [(act, int(count)) for act, count in (await self._session.execute(stmt)).all()]
