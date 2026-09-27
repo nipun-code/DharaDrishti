@@ -79,8 +79,14 @@ warn_unreachable = true
 files = ["app"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*", "sentence_transformers.*"]
+module = ["arq.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Heavy ML libraries: don't analyse them (torch alone takes many minutes); treat as Any.
+module = ["sentence_transformers.*", "torch.*", "transformers.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [[tool.mypy.overrides]]
 # PyMuPDF's bindings are only partially annotated.

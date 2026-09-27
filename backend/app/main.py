@@ -18,6 +18,8 @@ from app.core.logging import configure_logging
 from app.core.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
 from app.db.redis import create_redis
 from app.db.session import create_engine, create_session_factory
+from app.services.ingestion.embedder import SentenceTransformerEmbedder
+from app.services.retrieval.reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.redis = create_redis(settings)
         # Job queue client (bytes-mode Redis, as ARQ requires). Connects lazily on first use.
         app.state.arq = ArqRedis.from_url(settings.redis_url)
+        # Models load lazily on first use (run `python -m app.cli download-models` to pre-fetch).
+        app.state.embedder = SentenceTransformerEmbedder(
+            settings.embedding_model_name,
+            batch_size=settings.embedding_batch_size,
+            device=settings.embedding_device,
+            query_instruction=settings.embedding_query_instruction,
+        )
+        app.state.reranker = CrossEncoderReranker(
+            settings.reranker_model_name,
+            device=settings.embedding_device,
+            max_length=settings.reranker_max_length,
+            batch_size=settings.reranker_batch_size,
+        )
         logger.info("app_startup", extra={"environment": settings.environment})
         try:
             yield

@@ -3,8 +3,8 @@
 The model is loaded lazily on first use and cached on disk by Hugging Face (HF_HOME), which
 docker compose mounts as a volume so it is downloaded only once.
 
-Note for retrieval: bge models embed *queries* with the instruction prefix
-"Represent this sentence for searching relevant passages: "; passages are embedded as-is.
+Passages are embedded as-is; queries get the model's instruction prefix (`query_instruction`,
+for bge: "Represent this sentence for searching relevant passages: ").
 """
 
 import threading
@@ -24,10 +24,18 @@ class Embedder(Protocol):
 
 
 class SentenceTransformerEmbedder:
-    def __init__(self, model_name: str, *, batch_size: int = 32, device: str = "cpu") -> None:
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        batch_size: int = 32,
+        device: str = "cpu",
+        query_instruction: str = "",
+    ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.device = device
+        self.query_instruction = query_instruction
         self._model: Any = None
         self._lock = threading.Lock()
 
@@ -57,6 +65,14 @@ class SentenceTransformerEmbedder:
             show_progress_bar=False,
         )
         return [[float(x) for x in row] for row in vectors]
+
+    def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed search queries (with the model's query instruction prefix)."""
+        return self.embed([f"{self.query_instruction}{text}" for text in texts])
+
+    def warm_up(self) -> None:
+        """Load (and if needed download) the model now instead of on first use."""
+        self._load()
 
     def count_tokens(self, text: str) -> int:
         tokenizer = self._load().tokenizer

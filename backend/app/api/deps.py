@@ -18,6 +18,9 @@ from app.services.auth import AuthService
 from app.services.documents import DocumentService
 from app.services.health import HealthService
 from app.services.ingestion.storage import DocumentStorage
+from app.services.retrieval.hybrid import HybridRetriever, QueryEmbedder
+from app.services.retrieval.reranker import Reranker
+from app.services.retrieval.search import PostgresSearchBackend
 from app.workers.queue import ArqJobQueue, JobQueue
 
 
@@ -120,3 +123,26 @@ def get_document_service(
 
 
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
+
+
+# ---------------------------------------------------------------- retrieval
+def get_query_embedder(request: Request) -> QueryEmbedder:
+    return cast(QueryEmbedder, request.app.state.embedder)
+
+
+def get_reranker(request: Request) -> Reranker:
+    return cast(Reranker, request.app.state.reranker)
+
+
+def get_retriever(
+    request: Request,
+    settings: SettingsDep,
+    embedder: Annotated[QueryEmbedder, Depends(get_query_embedder)],
+    reranker: Annotated[Reranker, Depends(get_reranker)],
+) -> HybridRetriever:
+    factory = cast(async_sessionmaker[AsyncSession], request.app.state.session_factory)
+    backend = PostgresSearchBackend(factory, ef_search=settings.hnsw_ef_search)
+    return HybridRetriever(backend, embedder, reranker, settings)
+
+
+RetrieverDep = Annotated[HybridRetriever, Depends(get_retriever)]

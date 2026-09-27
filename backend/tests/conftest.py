@@ -81,6 +81,41 @@ class FakeEmbedder:
         return len(text.split())
 
 
+def unit_vector(*dims: int) -> list[float]:
+    """Normalized vector with equal weight on the given dimensions."""
+    vector = [0.0] * EMBEDDING_DIM
+    for dim in dims:
+        vector[dim] = 1.0 / len(dims) ** 0.5
+    return vector
+
+
+class FakeQueryEmbedder:
+    """Query embedder whose vectors are chosen by the test (default: dimension 383)."""
+
+    def __init__(self, vectors: dict[str, list[float]] | None = None) -> None:
+        self.vectors = vectors or {}
+        self.calls: list[list[str]] = []
+
+    def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return [self.vectors.get(text, unit_vector(EMBEDDING_DIM - 1)) for text in texts]
+
+
+class FakeReranker:
+    """Scores a passage by how many query words it contains (deterministic, no model)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    def score(self, query: str, passages: Sequence[str]) -> list[float]:
+        self.calls.append((query, len(passages)))
+        words = {w.strip("?.,").lower() for w in query.split()}
+        return [
+            min(1.0, sum(w in passage.lower() for w in words) / max(len(words), 1))
+            for passage in passages
+        ]
+
+
 class FakeJobQueue:
     def __init__(self, *, fail: bool = False) -> None:
         self.enqueued: list[uuid.UUID] = []

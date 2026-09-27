@@ -3,7 +3,7 @@
 AI legal research assistant for Indian statutes (BNS, BNSS, BSA, IPC, IT Act, …), built on hybrid
 RAG over PostgreSQL full-text search + pgvector.
 
-> Status: Phase 2 (ingestion pipeline). Full README (architecture, guardrails, eval results) comes later.
+> Status: Phase 3 (hybrid retrieval). Full README (architecture, guardrails, eval results) comes later.
 
 ## Quick start (Docker)
 
@@ -28,6 +28,7 @@ docker compose exec api alembic upgrade head      # migrations
 docker compose exec api python -m app.cli create-admin --email you@example.com   # prompts for password
 docker compose exec api python -m app.cli ingest --file /data/raw/<file>.pdf --act CODE --name "Full name" --year YYYY --wait
 docker compose exec api python -m app.cli load-mappings          # data/mappings/ipc_bns.csv
+docker compose exec api python -m app.cli download-models        # pre-fetch embedder + re-ranker (~1.2 GB)
 docker compose exec api sh -c "ruff check . && ruff format --check . && mypy app"   # lint
 ```
 

@@ -5,6 +5,7 @@
 
     python -m app.cli ingest --file /data/raw/act.pdf --act CODE --name "Full Name" --year 2000
     python -m app.cli load-mappings [--file /data/mappings/ipc_bns.csv] [--replace]
+    python -m app.cli download-models
 
 The password is never accepted as a command-line argument (it would leak into shell history
 and process listings). `ingest` queues the same background job as the upload API, so the
@@ -33,6 +34,7 @@ from app.schemas.auth import Email, NewPassword
 from app.schemas.documents import ActUpsert, DocumentRead
 from app.services.auth import AuthService
 from app.services.documents import DocumentService
+from app.services.ingestion.embedder import SentenceTransformerEmbedder
 from app.services.ingestion.mappings import (
     LoadResult,
     MappingFileError,
@@ -40,6 +42,7 @@ from app.services.ingestion.mappings import (
     parse_mapping_csv,
 )
 from app.services.ingestion.storage import DocumentStorage
+from app.services.retrieval.reranker import CrossEncoderReranker
 from app.workers.queue import ArqJobQueue
 
 _email_adapter: TypeAdapter[str] = TypeAdapter(Email)
@@ -83,7 +86,26 @@ def build_parser() -> argparse.ArgumentParser:
     mappings.add_argument(
         "--replace", action="store_true", help="Delete all existing mappings first."
     )
+
+    commands.add_parser(
+        "download-models",
+        help="Download/load the embedding and re-ranker models now (cached under HF_HOME).",
+    )
     return parser
+
+
+def download_models(settings: Settings) -> list[str]:
+    """Load both models once so the first query doesn't wait for a ~1 GB download."""
+    loaded = []
+    for model in (
+        SentenceTransformerEmbedder(
+            settings.embedding_model_name, device=settings.embedding_device
+        ),
+        CrossEncoderReranker(settings.reranker_model_name, device=settings.embedding_device),
+    ):
+        model.warm_up()
+        loaded.append(model.model_name)
+    return loaded
 
 
 # ---------------------------------------------------------------- create-admin
@@ -257,6 +279,9 @@ def main(argv: Sequence[str] | None = None, settings: Settings | None = None) ->
                 + (f" (deleted {result.deleted} existing)" if args.replace else "")
                 + "\n"
             )
+        elif args.command == "download-models":
+            for name in download_models(settings):
+                sys.stdout.write(f"Ready: {name}\n")
     except (CliError, AppError) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         return 1

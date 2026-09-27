@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = Field(default=80, ge=0)
     ingestion_job_timeout_seconds: int = Field(default=1800, ge=60)
 
+    # --- Retrieval ---------------------------------------------------------
+    # bge models expect this prefix on queries (not on passages).
+    embedding_query_instruction: str = "Represent this sentence for searching relevant passages: "
+    reranker_model_name: str = "BAAI/bge-reranker-base"
+    reranker_max_length: int = Field(default=512, ge=64)
+    reranker_batch_size: int = Field(default=16, ge=1)
+    retrieval_candidates: int = Field(
+        default=20, ge=1, le=200, description="Per search, per query."
+    )
+    retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    rerank_candidates: int = Field(default=20, ge=1, le=200)
+    rrf_k: int = Field(default=60, ge=1)
+    section_lookup_max_chunks: int = Field(default=3, ge=1, le=20)
+    max_section_refs: int = Field(default=5, ge=1, le=20)
+    hnsw_ef_search: int = Field(default=100, ge=10, le=1000)
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> Self:
         if self.chunk_overlap_tokens >= self.chunk_max_tokens // 2:
