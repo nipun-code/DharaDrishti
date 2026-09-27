@@ -9,12 +9,14 @@ from sqlalchemy import delete, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.api.deps import get_db_session
+from app.api.deps import get_db_session, get_rate_limiter
 from app.cli import create_admin
 from app.core.config import Settings
 from app.db.models import User, UserRole
 from app.main import create_app
 from app.repositories.users import UserRepository
+from app.services.limits import RateLimiter
+from tests.conftest import FakeRedis
 
 pytestmark = pytest.mark.integration
 
@@ -25,6 +27,8 @@ async def db_client(
 ) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(settings)
     app.dependency_overrides[get_db_session] = lambda: db_session
+    limiter = RateLimiter(FakeRedis())  # type: ignore[arg-type]
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

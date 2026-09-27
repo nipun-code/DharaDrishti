@@ -20,12 +20,18 @@ import pytest
 from fastapi import FastAPI
 from pydantic import SecretStr
 
-from app.api.deps import get_db_session, get_health_service, get_user_repository
+from app.api.deps import (
+    get_db_session,
+    get_health_service,
+    get_rate_limiter,
+    get_user_repository,
+)
 from app.core.config import Settings
 from app.db.models import User
 from app.db.models.types import EMBEDDING_DIM
 from app.main import create_app
 from app.services.health import HealthService
+from app.services.limits import RateLimiter
 from app.services.llm.base import LLMRequest, LLMResponse
 
 TEST_JWT_SECRET = "test-only-jwt-secret-key-0123456789abcdef"
@@ -179,6 +185,8 @@ def app(settings: Settings, user_store: InMemoryUserRepository, uow: FakeUnitOfW
     application = create_app(settings)
     application.dependency_overrides[get_db_session] = lambda: uow
     application.dependency_overrides[get_user_repository] = lambda: user_store
+    limiter = RateLimiter(FakeRedis())  # type: ignore[arg-type]  # FakeRedis is defined below
+    application.dependency_overrides[get_rate_limiter] = lambda: limiter
     return application
 
 

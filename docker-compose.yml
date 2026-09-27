@@ -10,6 +10,9 @@ x-backend-env: &backend-env
   HF_HOME: /models
   # Bind mounts from Windows/macOS hosts don't emit inotify events; poll so --reload works.
   WATCHFILES_FORCE_POLLING: "true"
+  # Trust X-Forwarded-For from the dev proxy (the frontend container). In production, set
+  # this to your reverse proxy's address only, or clients could spoof their IP.
+  FORWARDED_ALLOW_IPS: "*"
 
 services:
   postgres:
@@ -52,6 +55,8 @@ services:
         required: false
     environment:
       <<: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # lets Linux reach a host Ollama like Docker Desktop
     command: >
       uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
       --reload --reload-dir app --no-access-log
@@ -78,6 +83,8 @@ services:
         required: false
     environment:
       <<: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # lets Linux reach a host Ollama like Docker Desktop
     command: ["python", "-m", "app.workers.worker"]
     healthcheck:
       disable: true

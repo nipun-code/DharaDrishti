@@ -241,3 +241,12 @@ async def test_no_results_is_not_an_error(retriever: HybridRetriever) -> None:
     assert result.final == []
     assert result.fused == []
     assert result.timings_ms["total"] >= 0
+
+
+async def test_on_stage_reports_reranking_only_when_it_happens(retriever: HybridRetriever) -> None:
+    stages: list[str] = []
+
+    await retriever.retrieve("widget", mode=RetrievalMode.HYBRID, on_stage=stages.append)
+    await retriever.retrieve("widget", mode=RetrievalMode.HYBRID_RERANK, on_stage=stages.append)
+
+    assert stages == ["reranking"]

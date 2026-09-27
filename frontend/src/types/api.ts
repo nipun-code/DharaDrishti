@@ -110,7 +110,7 @@ export interface QueryResponse {
   query_log_id: string | null;
 }
 
-export type PipelineStage = "checking" | "searching" | "generating" | "verifying";
+export type PipelineStage = "checking" | "searching" | "reranking" | "generating" | "verifying";
 
 export type StreamEvent =
   | { type: "status"; stage: PipelineStage; message: string }

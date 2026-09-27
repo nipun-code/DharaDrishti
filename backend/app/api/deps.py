@@ -181,6 +181,21 @@ def get_query_store(request: Request) -> QueryStore:
 TokenBudgetDep = Annotated[TokenBudget, Depends(get_token_budget)]
 
 
+def client_ip(request: Request) -> str:
+    """Real client IP. Behind a proxy, uvicorn's --proxy-headers (trusting
+    FORWARDED_ALLOW_IPS) has already replaced it with the X-Forwarded-For address."""
+    return request.client.host if request.client else "unknown"
+
+
+async def enforce_auth_rate_limit(
+    request: Request,
+    settings: SettingsDep,
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+) -> None:
+    """Per-IP limit on credential endpoints, against password guessing."""
+    await limiter.hit(f"auth:{client_ip(request)}", settings.auth_rate_limit_per_minute)
+
+
 async def enforce_query_limits(
     request: Request,
     user: CurrentUserDep,
@@ -189,9 +204,8 @@ async def enforce_query_limits(
     budget: TokenBudgetDep,
 ) -> User:
     """Per-user and per-IP rate limits, then the user's daily token budget (429 on breach)."""
-    client_ip = request.client.host if request.client else "unknown"
     await limiter.hit(f"user:{user.id}", settings.rate_limit_user_per_minute)
-    await limiter.hit(f"ip:{client_ip}", settings.rate_limit_ip_per_minute)
+    await limiter.hit(f"ip:{client_ip(request)}", settings.rate_limit_ip_per_minute)
     await budget.check(user.id)
     return user
 

@@ -79,7 +79,7 @@ export function ChatPage() {
       setSelectedId(latest.id);
       setActiveCitation(null);
     }
-  }, [latest?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [latest?.id]);
 
   // Keep scrolled to the bottom while streaming, unless the user scrolled up.
   useEffect(() => {

@@ -16,8 +16,9 @@ export default defineConfig(({ mode }) => {
       // Bind mounts from Windows/macOS hosts don't emit fs events inside Docker.
       watch: { usePolling: env.VITE_USE_POLLING === "true" },
       proxy: {
-        "/health": { target: apiTarget, changeOrigin: true },
-        "/api": { target: apiTarget, changeOrigin: true },
+        // xfwd: send X-Forwarded-For so the API's per-IP rate limits see the real client.
+        "/health": { target: apiTarget, changeOrigin: true, xfwd: true },
+        "/api": { target: apiTarget, changeOrigin: true, xfwd: true },
       },
     },
   };

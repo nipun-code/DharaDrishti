@@ -19,7 +19,8 @@ import { AnswerText } from "./AnswerText";
 
 const STAGES: { stage: PipelineStage; label: string }[] = [
   { stage: "checking", label: "Checking query" },
-  { stage: "searching", label: "Searching 2 indexes & re-ranking" },
+  { stage: "searching", label: "Searching 2 indexes" },
+  { stage: "reranking", label: "Re-ranking" },
   { stage: "generating", label: "Writing answer" },
   { stage: "verifying", label: "Verifying citations" },
 ];

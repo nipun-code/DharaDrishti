@@ -77,6 +77,12 @@ class FakeRetriever:
         self.calls: list[dict[str, Any]] = []
 
     async def retrieve(self, query: str, **kwargs: Any) -> RetrievalResult:
+        on_stage = kwargs.pop("on_stage", None)
+        if (
+            on_stage
+            and kwargs.get("mode", RetrievalMode.HYBRID_RERANK) == RetrievalMode.HYBRID_RERANK
+        ):
+            on_stage("reranking")
         self.calls.append({"query": query, **kwargs})
         return RetrievalResult(
             query=query,
@@ -145,6 +151,7 @@ async def test_answer_with_citations_events_log_cache_and_budget(h: Harness) -> 
     assert [e.stage for e in events if isinstance(e, StatusEvent)] == [
         "checking",
         "searching",
+        "reranking",
         "generating",
         "verifying",
     ]
@@ -546,3 +553,19 @@ async def test_store_failure_does_not_hide_answer(h: Harness) -> None:
 
     assert not response.refused
     assert response.query_log_id is None
+
+
+async def test_no_reranking_stage_in_modes_without_rerank(h: Harness) -> None:
+    events = await h.events("Do widgets need registration?", mode=RetrievalMode.HYBRID)
+
+    assert "reranking" not in [e.stage for e in events if isinstance(e, StatusEvent)]
+
+
+async def test_retrieval_errors_propagate_through_stage_relay(h: Harness) -> None:
+    async def broken(query: str, **kwargs: Any) -> RetrievalResult:
+        raise RuntimeError("index offline")
+
+    h.retriever.retrieve = broken  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="index offline"):
+        await h.ask("Do widgets need registration?")

@@ -118,6 +118,8 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = Field(default=86400, ge=1)
     rate_limit_user_per_minute: int = Field(default=20, ge=1)
     rate_limit_ip_per_minute: int = Field(default=40, ge=1)
+    # Login/register/refresh attempts per IP per minute (brute-force protection).
+    auth_rate_limit_per_minute: int = Field(default=10, ge=1)
     daily_token_budget: int = Field(default=100_000, ge=1000)
     # --- Evaluation -----------------------------------------------------------
     eval_dataset_path: Path | None = Field(

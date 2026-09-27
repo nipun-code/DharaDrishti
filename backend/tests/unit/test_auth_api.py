@@ -223,3 +223,16 @@ async def test_admin_route_forbids_regular_user(
 @pytest.mark.usefixtures("admin_route")
 async def test_admin_route_requires_authentication(client: httpx.AsyncClient) -> None:
     assert_error(await client.get("/_test/admin"), 401, "unauthorized")
+
+
+async def test_login_attempts_are_rate_limited_per_ip(
+    client: httpx.AsyncClient, settings: Settings
+) -> None:
+    attempt = {"email": "someone@example.com", "password": "guess-guess"}
+    for _ in range(settings.auth_rate_limit_per_minute):
+        assert (await client.post("/api/v1/auth/login", json=attempt)).status_code == 401
+
+    blocked = await client.post("/api/v1/auth/login", json=attempt)
+
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"]

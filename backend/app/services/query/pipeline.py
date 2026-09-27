@@ -13,10 +13,12 @@ the final result; POST /query/stream forwards each event over SSE. Order of step
     -> disclaimer, query log, cache write, token accounting
 """
 
+import asyncio
+import contextlib
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -120,6 +122,7 @@ class Retriever(Protocol):
         mode: RetrievalMode = RetrievalMode.HYBRID_RERANK,
         top_k: int | None = None,
         extra_queries: Sequence[str] = (),
+        on_stage: Callable[[str], None] | None = None,
     ) -> RetrievalResult: ...
 
 
@@ -218,8 +221,13 @@ class QueryPipeline:
             yield await self._refuse(run, refusal)
             return
 
-        yield StatusEvent("searching", "Searching the acts…")
-        sources, refusal = await self._retrieve(run)
+        yield StatusEvent("searching", "Searching 2 indexes…")
+        stages: asyncio.Queue[str] = asyncio.Queue()
+        retrieval = asyncio.create_task(self._retrieve(run, stages.put_nowait))
+        async for stage in _relay_stages(retrieval, stages):
+            if stage == "reranking":
+                yield StatusEvent("reranking", "Re-ranking…")
+        sources, refusal = retrieval.result()
         if refusal:
             yield await self._refuse(run, refusal)
             return
@@ -267,10 +275,17 @@ class QueryPipeline:
                 run.rewritten = rewrites
         return None
 
-    async def _retrieve(self, run: _Run) -> tuple[list[Source], str | None]:
+    async def _retrieve(
+        self, run: _Run, on_stage: Callable[[str], None] | None = None
+    ) -> tuple[list[Source], str | None]:
         """Hybrid retrieval, relevance threshold (refuse without the LLM), context budget."""
         result = await self._retriever.retrieve(
-            run.query, acts=run.acts, mode=run.mode, top_k=run.top_k, extra_queries=run.rewritten
+            run.query,
+            acts=run.acts,
+            mode=run.mode,
+            top_k=run.top_k,
+            extra_queries=run.rewritten,
+            on_stage=on_stage,
         )
         run.chunk_ids = [c.chunk.id for c in result.final]
         decision = check_relevance(result, self._settings.rerank_refusal_threshold)
@@ -448,6 +463,29 @@ class QueryPipeline:
         except Exception:  # a logging failure must not hide the answer
             logger.exception("query_log_failed")
             return None
+
+
+async def _relay_stages(
+    task: "asyncio.Task[object]", stages: "asyncio.Queue[str]"
+) -> AsyncIterator[str]:
+    """Yield stage names pushed onto `stages` while `task` runs; then let the task finish.
+    If the consumer stops early (client disconnected), the task is cancelled."""
+    try:
+        while not task.done():
+            getter = asyncio.ensure_future(stages.get())
+            done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+            if getter in done:
+                yield getter.result()
+            else:
+                getter.cancel()
+        while not stages.empty():
+            yield stages.get_nowait()
+        await task  # re-raise any retrieval error
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 def _citation(source: Source) -> Citation:

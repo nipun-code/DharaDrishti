@@ -14,17 +14,19 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import pytest
+from fastapi import Request
 from pydantic import SecretStr
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.deps import get_llm, get_query_embedder, get_reranker
+from app.api.deps import get_llm, get_query_embedder, get_rate_limiter, get_reranker
 from app.core.config import Settings, get_settings
 from app.core.security import create_token_pair
 from app.db.models import Act, Chunk, Document, QueryLog, User, UserRole
 from app.main import create_app
+from app.services.limits import RateLimiter
 from app.services.llm.base import AllProvidersFailedError
 from tests.conftest import FakeLLM, FakeQueryEmbedder, FakeReranker, unit_vector
 
@@ -135,6 +137,13 @@ def make_env_fixture(**overrides: Any) -> Any:
             {QUESTION: unit_vector(1)}
         )
         app.dependency_overrides[get_reranker] = FakeReranker
+
+        # Real Redis, frozen clock: fixed one-minute windows would make the rate-limit test
+        # flaky if its requests straddled a minute boundary.
+        def frozen_limiter(request: Request) -> RateLimiter:
+            return RateLimiter(request.app.state.redis, now=lambda: 1_000_010.0)
+
+        app.dependency_overrides[get_rate_limiter] = frozen_limiter
         headers = {
             "Authorization": f"Bearer {create_token_pair(str(user.id), app_settings).access_token}"
         }
@@ -227,7 +236,7 @@ async def test_stream_emits_status_tokens_citations_done(env: Env) -> None:
     assert "token" in names
     assert names[-2:] == ["citations", "done"]
     stages = [data["stage"] for name, data in events if name == "status"]
-    assert stages == ["checking", "searching", "generating", "verifying"]
+    assert stages == ["checking", "searching", "reranking", "generating", "verifying"]
     streamed = "".join(data["text"] for name, data in events if name == "token")
     done = events[-1][1]
     assert streamed == done["answer"]

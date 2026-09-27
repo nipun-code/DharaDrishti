@@ -12,7 +12,7 @@ Modes: keyword | vector | hybrid (RRF) | hybrid_rerank (RRF + cross-encoder, def
 import asyncio
 import re
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol, TypeVar
 
 from app.core.config import Settings
@@ -75,9 +75,11 @@ class HybridRetriever:
         mode: RetrievalMode = RetrievalMode.HYBRID_RERANK,
         top_k: int | None = None,
         extra_queries: Sequence[str] = (),
+        on_stage: Callable[[str], None] | None = None,
     ) -> RetrievalResult:
         """`extra_queries` are additional search phrasings (e.g. from query rewriting);
-        section references are only taken from the user's own `query`."""
+        section references are only taken from the user's own `query`. `on_stage` is told
+        when a slow stage starts ("reranking"), for live progress in the UI."""
         started = time.perf_counter()
         top_k = top_k or self._settings.retrieval_top_k
         act_codes = sorted({a.upper() for a in acts}) if acts else None
@@ -106,6 +108,8 @@ class HybridRetriever:
 
         if mode == RetrievalMode.HYBRID_RERANK and result.fused:
             pool = result.fused[: self._settings.rerank_candidates]
+            if on_stage:
+                on_stage("reranking")
             result.reranked = await _timed(timings, "rerank", self._rerank(query, pool))
             ranked = result.reranked
         else:
