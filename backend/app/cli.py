@@ -223,6 +223,9 @@ class _NoQueue:
     async def enqueue_ingestion(self, document_id: uuid.UUID) -> None:  # pragma: no cover
         raise RuntimeError("read-only")
 
+    async def enqueue_evaluation(self, eval_run_id: uuid.UUID) -> None:  # pragma: no cover
+        raise RuntimeError("read-only")
+
 
 def _report_ingestion(view: DocumentRead) -> None:
     sys.stdout.write(

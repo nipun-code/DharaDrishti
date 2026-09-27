@@ -129,6 +129,11 @@ class FakeJobQueue:
             raise ConnectionError("redis down")
         self.enqueued.append(document_id)
 
+    async def enqueue_evaluation(self, eval_run_id: uuid.UUID) -> None:
+        if self.fail:
+            raise ConnectionError("redis down")
+        self.enqueued.append(eval_run_id)
+
 
 class FakeUnitOfWork:
     def __init__(self) -> None:

@@ -4,7 +4,7 @@ from app.db.models.act import Act
 from app.db.models.chunk import Chunk
 from app.db.models.document import Document
 from app.db.models.enums import ActStatus, DocumentStatus, UserRole
-from app.db.models.eval_run import EvalRun
+from app.db.models.eval_run import EvalRun, EvalRunStatus
 from app.db.models.feedback import Feedback
 from app.db.models.query_log import QueryLog
 from app.db.models.section_mapping import SectionMapping
@@ -17,6 +17,7 @@ __all__ = [
     "Document",
     "DocumentStatus",
     "EvalRun",
+    "EvalRunStatus",
     "Feedback",
     "QueryLog",
     "SectionMapping",

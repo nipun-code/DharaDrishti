@@ -1,4 +1,4 @@
-import { BarChart3, FlaskConical, type LucideIcon } from "lucide-react";
+import { BarChart3, type LucideIcon } from "lucide-react";
 
 function ComingSoon({ icon: Icon, title, points }: { icon: LucideIcon; title: string; points: string[] }) {
   return (
@@ -21,20 +21,6 @@ function ComingSoon({ icon: Icon, title, points }: { icon: LucideIcon; title: st
         </div>
       </div>
     </div>
-  );
-}
-
-export function EvaluationPage() {
-  return (
-    <ComingSoon
-      icon={FlaskConical}
-      title="Evaluation"
-      points={[
-        "Run the golden-set evaluation as a background job",
-        "Compare vector, keyword, hybrid and hybrid + re-rank: recall@5, MRR, faithfulness, latency",
-        "Bar charts and the history of previous runs",
-      ]}
-    />
   );
 }
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from app.core.context import get_request_id
 from app.services.ingestion.pipeline import IngestionPipeline
 from app.workers import worker
-from app.workers.queue import INGEST_DOCUMENT_JOB, ArqJobQueue
+from app.workers.queue import INGEST_DOCUMENT_JOB, RUN_EVALUATION_JOB, ArqJobQueue
 from app.workers.worker import WorkerSettings, ingest_document, on_shutdown, on_startup, ping
 
 
@@ -41,7 +41,7 @@ async def test_ingest_document_job_runs_pipeline_with_job_request_id() -> None:
 
 def test_worker_settings_registers_tasks() -> None:
     names = [f.name for f in WorkerSettings.functions]  # type: ignore[union-attr]
-    assert names == ["ping", INGEST_DOCUMENT_JOB]
+    assert names == ["ping", INGEST_DOCUMENT_JOB, RUN_EVALUATION_JOB]
     assert WorkerSettings.redis_settings.host
 
 

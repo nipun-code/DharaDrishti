@@ -119,9 +119,20 @@ class Settings(BaseSettings):
     rate_limit_user_per_minute: int = Field(default=20, ge=1)
     rate_limit_ip_per_minute: int = Field(default=40, ge=1)
     daily_token_budget: int = Field(default=100_000, ge=1000)
+    # --- Evaluation -----------------------------------------------------------
+    eval_dataset_path: Path | None = Field(
+        default=None, description="Default: <DATA_DIR>/eval/golden.jsonl"
+    )
+    eval_retrieval_k: int = Field(default=10, ge=5, le=50)
+    eval_job_timeout_seconds: int = Field(default=4 * 3600, ge=60)
+
     cors_origins: str = Field(
         default="http://localhost:5173", description="Comma-separated allowed origins."
     )
+
+    @property
+    def golden_dataset_path(self) -> Path:
+        return self.eval_dataset_path or self.data_dir / "eval" / "golden.jsonl"
 
     @property
     def llm_provider_order(self) -> list[str]:

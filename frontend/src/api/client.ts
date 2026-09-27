@@ -10,8 +10,12 @@ import type {
   ActSummary,
   Citation,
   DocumentList,
+  DatasetStatus,
   DocumentRead,
   ErrorBody,
+  EvalConfig,
+  EvalRunDetail,
+  EvalRunSummary,
   ErrorResponse,
   FeedbackRead,
   MappingView,
@@ -305,6 +309,14 @@ export const api = {
         method: "POST",
         body: { query_log_id: queryLogId, rating },
       }),
+  },
+
+  evaluation: {
+    dataset: () => request<DatasetStatus>(`${API}/eval/dataset`),
+    run: (config: EvalConfig) =>
+      request<{ eval_run_id: string; status: string }>(`${API}/eval/run`, { method: "POST", body: config }),
+    runs: () => request<EvalRunSummary[]>(`${API}/eval/runs?limit=30`),
+    get: (id: string, signal?: AbortSignal) => request<EvalRunDetail>(`${API}/eval/runs/${id}`, { signal }),
   },
 
   documents: {

@@ -68,6 +68,7 @@ known-third-party = ["alembic"]
 "app/services/ingestion/{legal_chunker,pdf_parser}.py" = ["RUF001"]
 # Prompt prose reads better unwrapped.
 "app/services/generation/prompts.py" = ["E501"]
+"app/services/evaluation/judge.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

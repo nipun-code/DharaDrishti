@@ -18,12 +18,12 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.config import Settings
 from app.core.exceptions import ServiceUnavailableError
 from app.schemas.query import Citation, QueryResponse
-from app.services.cache.exact import AnswerCache, cache_key
+from app.services.cache.exact import cache_key
 from app.services.generation.context import Source, answer_messages, build_sources
 from app.services.generation.llm_tasks import (
     UsageMeter,
@@ -40,7 +40,6 @@ from app.services.guardrails.input import (
 )
 from app.services.guardrails.output import mentioned_sections, verify_citations
 from app.services.guardrails.retrieval import check_relevance, repealed_acts
-from app.services.limits import TokenBudget
 from app.services.llm.base import LLMError, LLMRequest
 from app.services.llm.fallback import LLMClient
 from app.services.query.store import QueryLogEntry, QueryStore
@@ -102,6 +101,16 @@ class ResultEvent:
 QueryEvent = StatusEvent | TokenEvent | ResultEvent
 
 
+class AnswerCacheLike(Protocol):
+    async def get(self, key: str) -> dict[str, Any] | None: ...
+
+    async def set(self, key: str, payload: dict[str, Any]) -> None: ...
+
+
+class TokenBudgetLike(Protocol):
+    async def add(self, user_id: uuid.UUID, tokens: int) -> None: ...
+
+
 class Retriever(Protocol):
     async def retrieve(
         self,
@@ -144,8 +153,8 @@ class QueryPipeline:
         settings: Settings,
         llm: LLMClient,
         retriever: Retriever,
-        cache: AnswerCache,
-        budget: TokenBudget,
+        cache: AnswerCacheLike,
+        budget: TokenBudgetLike,
         store: QueryStore,
     ) -> None:
         self._settings = settings

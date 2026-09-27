@@ -45,7 +45,11 @@ class SentenceTransformerEmbedder:
                 from sentence_transformers import SentenceTransformer  # noqa: PLC0415  # heavy
 
                 model = SentenceTransformer(self.model_name, device=self.device)
-                dim = model.get_sentence_embedding_dimension()
+                # Renamed in newer sentence-transformers; support both.
+                get_dim = getattr(model, "get_embedding_dimension", None) or (
+                    model.get_sentence_embedding_dimension
+                )
+                dim = get_dim()
                 if dim != EMBEDDING_DIM:
                     raise IngestionError(
                         f"Embedding model {self.model_name!r} produces {dim}-d vectors but the "

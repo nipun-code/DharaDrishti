@@ -1,0 +1,5 @@
+{"id": "example-exact-01", "question": "<A question that names a section directly, e.g. 'What does section <N> of <ACT> say?'>", "expected_sections": [{"act": "<ACT_CODE>", "section": "<N>"}], "reference_answer": "<Optional: 1-3 sentences written by you from the act's own text>", "category": "exact_ref"}
+{"id": "example-semantic-01", "question": "<A plain-English question that does NOT name a section>", "expected_sections": [{"act": "<ACT_CODE>", "section": "<N>"}], "reference_answer": "<Optional>", "category": "semantic"}
+{"id": "example-semantic-02", "question": "<A question whose answer needs two provisions>", "expected_sections": [{"act": "<ACT_CODE>", "section": "<N>"}, {"act": "<ACT_CODE>", "section": "<M>"}], "category": "semantic"}
+{"id": "example-mapping-01", "question": "<A question about which new section replaced an old one>", "expected_sections": [{"act": "<NEW_ACT_CODE>", "section": "<N>"}], "reference_answer": "<Optional>", "category": "mapping"}
+{"id": "example-oos-01", "question": "<A question the assistant must refuse: off-topic, or about law that is not in the indexed acts>", "expected_sections": [], "category": "out_of_scope"}
