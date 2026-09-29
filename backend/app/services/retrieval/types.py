@@ -46,11 +46,6 @@ class ChunkRecord:
             self.section_title,
         )
 
-    @property
-    def rerank_text(self) -> str:
-        """Passage text given to the cross-encoder (header adds act/section context)."""
-        return f"{self.context_header}\n{self.text}"
-
 
 @dataclass(frozen=True, slots=True)
 class ChunkHit:
@@ -104,4 +99,6 @@ class RetrievalResult:
     fused: list[Candidate] = field(default_factory=list)
     reranked: list[Candidate] = field(default_factory=list)
     final: list[Candidate] = field(default_factory=list)
+    # One candidate per section of `final`, with the section's full text (answer context).
+    context: list[Candidate] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)

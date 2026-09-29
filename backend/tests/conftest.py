@@ -165,6 +165,13 @@ def settings(tmp_path: Path) -> Settings:
         upload_dir=tmp_path / "uploads",
         max_upload_mb=1,
         data_dir=tmp_path / "data",
+        # Explicit values beat environment variables: real provider keys from the developer's
+        # .env (passed into the container) must never reach the test suite.
+        groq_api_key=None,
+        groq_model=None,
+        gemini_api_key=None,
+        gemini_model=None,
+        ollama_model=None,
         _env_file=None,
     )
 

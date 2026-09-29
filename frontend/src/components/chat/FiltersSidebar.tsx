@@ -34,7 +34,8 @@ export function FiltersSidebar(props: Props) {
   useEffect(() => {
     api.catalog
       .acts()
-      .then((acts) => setLoad({ kind: "ok", acts }))
+      // An act left without an ingested document has nothing to search; don't offer it.
+      .then((acts) => setLoad({ kind: "ok", acts: acts.filter((a) => a.chunks_count > 0) }))
       .catch((err: unknown) => setLoad({ kind: "error", message: describeError(err) }));
   }, []);
 

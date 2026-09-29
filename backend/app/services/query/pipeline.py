@@ -291,7 +291,7 @@ class QueryPipeline:
         decision = check_relevance(result, self._settings.rerank_refusal_threshold)
         if decision.refuse:
             return [], decision.reason or "not_found"
-        sources, dropped = build_sources(result.final, self._settings.context_max_tokens)
+        sources, dropped = build_sources(result.context, self._settings.context_max_tokens)
         if dropped:
             run.flag("context_trimmed")
         return sources, None

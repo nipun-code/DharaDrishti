@@ -323,3 +323,69 @@ def test_split_pieces_track_their_own_pages() -> None:
 
     assert pieces[0].page_start == 1
     assert pieces[-1].page_end == 2
+
+
+# ---------------------------------------------------------------- amended-act layout
+AMENDED_ACT = """CHAPTER 1
+PRELIMINARY
+1. Short rule.–Placeholder body one.
+2
+[1A. Inserted rule.–(1) Placeholder inserted body.]
+3.
+4
+[Substituted heading] for placeholder things.–Placeholder body three.
+4. Wrapped heading of 1
+[placeholder words] here.–Placeholder body four.
+CHAPTERII
+[PLACEHOLDER PART]
+5. Last rule.–Placeholder body five."""
+
+
+def test_amendment_brackets_and_footnote_markers_are_handled() -> None:
+    chunks = chunk(one_page(AMENDED_ACT))
+
+    assert [c.section_number for c in chunks] == ["1", "1A", "3", "4", "5"]
+    assert by_section(chunks, "1").text == "Placeholder body one."  # no "2" / "[1A" leak
+    assert by_section(chunks, "1A").section_title == "Inserted rule"
+    assert by_section(chunks, "3").section_title == "Substituted heading for placeholder things"
+    assert by_section(chunks, "4").section_title == "Wrapped heading of placeholder words here"
+    assert by_section(chunks, "3").text == "Placeholder body three."
+
+
+def test_arabic_and_unspaced_chapter_headings() -> None:
+    chunks = chunk(one_page(AMENDED_ACT))
+
+    first, last = by_section(chunks, "1"), by_section(chunks, "5")
+    assert (first.chapter_number, first.chapter_title) == ("I", "Preliminary")
+    assert (last.chapter_number, last.chapter_title) == ("II", "Placeholder Part")
+
+
+def test_heading_glued_to_previous_sentence_is_split_off() -> None:
+    text = (
+        "1. First rule.—Placeholder body one ends here. 2. Second rule.—Placeholder body two.\n"
+        "3. Third rule.—Placeholder body three."
+    )
+
+    chunks = chunk(one_page(text))
+
+    assert [c.section_number for c in chunks] == ["1", "2", "3"]
+    assert by_section(chunks, "1").text == "Placeholder body one ends here."
+
+
+def test_heading_without_space_or_full_stop_before_dash() -> None:
+    text = (
+        "7.—Seventh rule.—Placeholder seven.\n"
+        "8. Eighth rule wraps onto\nthe next line—Placeholder eight."
+    )
+
+    chunks = chunk(one_page(text))
+
+    assert by_section(chunks, "7").section_title == "Seventh rule"
+    assert by_section(chunks, "8").section_title == "Eighth rule wraps onto the next line"
+    assert by_section(chunks, "8").text == "Placeholder eight."
+
+
+def test_hyphenated_title_is_not_split_at_the_hyphen() -> None:
+    chunks = chunk(one_page("9. House-trespass rule.—Placeholder nine."))
+
+    assert by_section(chunks, "9").section_title == "House-trespass rule"

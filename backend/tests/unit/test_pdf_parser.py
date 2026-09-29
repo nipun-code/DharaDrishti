@@ -138,3 +138,11 @@ def test_blank_lines_dropped_and_page_numbers_preserved() -> None:
     cleaned = clean_pages([PageText(7, "\n\n  Body  \n\n")])
 
     assert cleaned == [PageText(7, "Body")]
+
+
+def test_india_code_watermark_removed_anywhere_in_text() -> None:
+    text = "Opening line\nplaceholder insultIndiaCodewords here\nIndiaCode\nLast line"
+
+    cleaned = clean_pages([PageText(1, text)])
+
+    assert cleaned[0].text == "Opening line\nplaceholder insult words here\nLast line"

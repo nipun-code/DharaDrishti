@@ -13,6 +13,13 @@ Detection rules (tuned to the India Code bare-act layout):
   contents usually lists "THE FIRST SCHEDULE" too, schedule mode ends at the next CHAPTER
   heading or when section numbering restarts at "1" (the start of the real act body).
 * Text before the first section (title page, table of contents, preamble) is not chunked.
+* Amended acts: India Code prints an inserted or substituted provision with a footnote number
+  on its own line and an opening bracket, e.g. "3" / "[43A. Compensation for ....—Where ...",
+  and sometimes as "72A." / "5" / "[Penalty] for disclosure ....—". Lone footnote numbers are
+  dropped, headings may start with "[", the number may stand alone on its line, and brackets and
+  footnote markers are removed from titles ("Licence to issue 1 [electronic signature]
+  Certificates" -> "Licence to issue electronic signature Certificates"). Chapter headings may
+  use Arabic numerals ("CHAPTER 1", stored as "I") or lack the space ("CHAPTERVII").
 
 One chunk per section. A section over `max_tokens` is split at sub-section / clause /
 Explanation / Illustration boundaries (falling back to sentences, then words), and each piece
@@ -30,17 +37,27 @@ TokenCounter = Callable[[str], int]
 
 _DASH = r"(?:—|–|―|-{1,2})"
 CHAPTER_RE = re.compile(
-    r"^CHAPTER\s+(?P<num>[IVXLCDM]+[A-Z]?)\b\.?\s*(?:[:.—–-]\s*)?(?P<title>.*)$"
+    r"^\[?CHAPTER\s*(?P<num>[IVXLCDM]+[A-Z]?|\d{1,3}[A-Z]?)\b\.?\s*(?:[:.—–-]\s*)?(?P<title>.*)$"
 )
-SECTION_START_RE = re.compile(r"^(?P<num>\d{1,4}[A-Z]{0,3})\.\s+(?P<after>[A-Z\[(].*)$")
-SECTION_TITLE_RE = re.compile(rf"^(?P<title>.+?)[.:]\s*{_DASH}\s*(?P<rest>.*)$")
-SCHEDULE_RE = re.compile(r"^(?:THE\s+(?:[A-Z]+\s+)?)?SCHEDULE\b")
+SECTION_START_RE = re.compile(
+    r"^\[?(?P<num>\d{1,4}[A-Z]{0,3})\.(?:(?:\s*[—–]\s*|\s+)(?P<after>[A-Z\[(].*))?$"
+)
+# ".—" normally ends a title; a bare em dash is accepted too (the printed text sometimes drops
+# the full stop). A bare hyphen is not, because titles contain hyphenated words.
+SECTION_TITLE_RE = re.compile(rf"^(?P<title>.+?)(?:[.:]\s*{_DASH}|\s*—)\s*(?P<rest>.*)$")
+# A heading glued to the end of the previous sentence (PDF text extraction across page breaks):
+# "... liable to fine. 79. Word, gesture ...".
+_GLUED_HEADING_RE = re.compile(r"(?<=[.;:])\s+(?=\[?\d{1,4}[A-Z]{0,3}\.(?:\s*[—–]|\s+[A-Z\[(]))")
+SCHEDULE_RE = re.compile(r"^\[?(?:THE\s+(?:[A-Z]+\s+)?)?SCHEDULE\b")
 UNIT_START_RE = re.compile(
     r"^(?:\((?P<num>\d+[A-Z]?)\)"  # (1) (2A)      sub-section
     r"|\((?P<clause>[a-z]{1,2}|[ivxl]{1,5})\)"  # (a) (iv)   clause
     r"|(?P<kw>Explanation|Illustrations?|Provided|Exception)\b)"
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.;:])\s+")
+_FOOTNOTE_MARKER_LINE_RE = re.compile(r"^\d{1,2}$")
+_FOOTNOTE_BEFORE_BRACKET_RE = re.compile(r"(?:^|\s)\d{1,2}\s*\[")
+_ROMAN_NUMERALS = ((50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
 _MAX_TITLE_LENGTH = 250
 _TITLE_LOOKAHEAD_LINES = 2
 
@@ -77,11 +94,25 @@ def _is_mostly_upper(text: str) -> bool:
 
 
 def _nice_title(text: str) -> str:
-    """Normalize an ALL-CAPS heading to Title Case; leave mixed-case text alone."""
+    """Normalize an ALL-CAPS heading to Title Case; leave mixed-case text alone. Amendment
+    brackets and footnote markers are removed."""
+    text = _FOOTNOTE_BEFORE_BRACKET_RE.sub(" ", text).replace("[", "").replace("]", "")
     text = " ".join(text.split()).strip(" .:—–-")
     if _is_mostly_upper(text):
         return " ".join(word.capitalize() for word in text.split())
     return text
+
+
+def _chapter_number(raw: str) -> str:
+    """Arabic chapter numbers ("1", "12A") are stored in Roman form, like the rest of the act."""
+    digits = raw.rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    if not digits.isdigit():
+        return raw
+    value, roman = int(digits), ""
+    for amount, symbol in _ROMAN_NUMERALS:
+        count, value = divmod(value, amount)
+        roman += symbol * count
+    return roman + raw[len(digits) :]
 
 
 def _join_lines(lines: Iterable[str]) -> str:
@@ -102,9 +133,10 @@ def _to_lines(pages: Sequence[PageText]) -> list[_Line]:
     lines: list[_Line] = []
     for page in pages:
         for raw in page.text.splitlines():
-            text = " ".join(raw.split())
-            if text:
-                lines.append(_Line(page.number, text))
+            for part in _GLUED_HEADING_RE.split(" ".join(raw.split())):
+                # A lone 1-2 digit line is an amendment footnote marker (or a stray page number).
+                if part and not _FOOTNOTE_MARKER_LINE_RE.match(part):
+                    lines.append(_Line(page.number, part))
     return lines
 
 
@@ -113,7 +145,7 @@ def _match_section_heading(lines: Sequence[_Line], i: int) -> tuple[str, str, st
     start = SECTION_START_RE.match(lines[i].text)
     if not start:
         return None
-    candidate = start.group("after")
+    candidate = start.group("after") or ""
     for extra in range(_TITLE_LOOKAHEAD_LINES + 1):
         titled = SECTION_TITLE_RE.match(candidate)
         if titled and len(titled.group("title")) <= _MAX_TITLE_LENGTH:
@@ -144,7 +176,7 @@ def _parse_sections(lines: Sequence[_Line]) -> list[_Section]:
 
         chapter = CHAPTER_RE.match(text)
         if chapter and _is_mostly_upper(text):
-            chapter_number = chapter.group("num")
+            chapter_number = _chapter_number(chapter.group("num"))
             title = chapter.group("title").strip()
             consumed = 1
             if not title and i + 1 < len(lines):

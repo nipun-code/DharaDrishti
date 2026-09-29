@@ -4,7 +4,9 @@
        sections (IPC -> BNS via section_mappings). These always go first in the results.
     2. For every search query: keyword search and vector search, run concurrently.
     3. Reciprocal Rank Fusion over all rankings the mode uses; de-duplicated.
-    4. hybrid_rerank only: the top fused candidates are re-scored by the cross-encoder.
+    4. hybrid_rerank only: the top fused candidates are re-scored by the cross-encoder, and
+       the final order blends that with the fused order (RRF of the two rankings).
+    5. Answer context: each section in the final list is re-read in full (all its pieces).
 
 Modes: keyword | vector | hybrid (RRF) | hybrid_rerank (RRF + cross-encoder, default).
 """
@@ -16,10 +18,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol, TypeVar
 
 from app.core.config import Settings
+from app.services.retrieval.expansion import expand_sections
 from app.services.retrieval.fusion import reciprocal_rank_fusion
-from app.services.retrieval.reranker import Reranker
+from app.services.retrieval.reranker import Reranker, text_windows
 from app.services.retrieval.search import SearchBackend
-from app.services.retrieval.section_lookup import parse_section_refs
+from app.services.retrieval.section_lookup import parse_section_refs, strip_act_names
 from app.services.retrieval.types import (
     Candidate,
     CandidateSource,
@@ -115,6 +118,13 @@ class HybridRetriever:
         else:
             ranked = result.fused
         result.final = [*direct, *ranked[:top_k]]
+        max_pieces = self._settings.section_context_max_chunks
+        if max_pieces and result.final:
+            result.context = await _timed(
+                timings, "section_context", expand_sections(self._backend, result.final, max_pieces)
+            )
+        else:
+            result.context = list(result.final)
         timings["total"] = round((time.perf_counter() - started) * 1000, 2)
         return result
 
@@ -131,8 +141,10 @@ class HybridRetriever:
         async def keyword_branch() -> list[list[ChunkHit]]:
             if mode == RetrievalMode.VECTOR:
                 return []
+            # Act names are for the act filter, not the text match (see strip_act_names).
+            phrases = [strip_act_names(q) for q in queries]
             return list(
-                await asyncio.gather(*(self._backend.keyword(q, act_codes, limit) for q in queries))
+                await asyncio.gather(*(self._backend.keyword(q, act_codes, limit) for q in phrases))
             )
 
         async def vector_branch() -> list[list[ChunkHit]]:
@@ -216,10 +228,35 @@ class HybridRetriever:
         return fused
 
     async def _rerank(self, query: str, pool: list[Candidate]) -> list[Candidate]:
-        scores = await asyncio.to_thread(
-            self._reranker.score, query, [c.chunk.rerank_text for c in pool]
-        )
-        for candidate, score in zip(pool, scores, strict=True):
+        # The cross-encoder truncates long input, so a long chunk is scored in overlapping
+        # windows (each with the section header) and keeps its best window's score. Otherwise
+        # a clause near the end of a chunk, such as a punishment after the Illustrations,
+        # would never be seen.
+        size = self._settings.rerank_window_words
+        overlap = self._settings.rerank_window_overlap_words
+        passages: list[str] = []
+        owners: list[int] = []
+        for i, candidate in enumerate(pool):
+            chunk = candidate.chunk
+            for window in text_windows(chunk.text, size, overlap):
+                passages.append(f"{chunk.context_header}\n{window}")
+                owners.append(i)
+        scores = await asyncio.to_thread(self._reranker.score, query, passages)
+        best = [0.0] * len(pool)
+        for owner, score in zip(owners, scores, strict=True):
+            best[owner] = max(best[owner], score)
+        for candidate, score in zip(pool, best, strict=True):
             candidate.rerank_score = score
         # Stable sort: equal scores keep their fused order.
-        return sorted(pool, key=lambda c: -(c.rerank_score or 0.0))
+        by_score = sorted(pool, key=lambda c: -(c.rerank_score or 0.0))
+        if not self._settings.rerank_blend_with_search:
+            return by_score
+        # The cross-encoder favours short passages that restate the query, so a long section
+        # that search ranked first (e.g. the general punishment for theft) can drop out of the
+        # top k. Fusing both orders keeps the search signal; rerank_score is left untouched
+        # for the relevance threshold.
+        by_id = {c.chunk.id: c for c in pool}
+        blended = reciprocal_rank_fusion(
+            [[c.chunk.id for c in pool], [c.chunk.id for c in by_score]], k=self._settings.rrf_k
+        )
+        return [by_id[chunk_id] for chunk_id, _ in blended]

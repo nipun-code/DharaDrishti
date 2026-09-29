@@ -222,7 +222,7 @@ class EvaluationRunner:
         if item.category == "out_of_scope" or response.refused or capturing.last is None:
             return
         meter = UsageMeter()
-        sources, _ = build_sources(capturing.last.final, self._settings.context_max_tokens)
+        sources, _ = build_sources(capturing.last.context, self._settings.context_max_tokens)
         faithfulness = await judge_faithfulness(self._llm, meter, sources, response.answer)
         relevance = await judge_relevance(
             self._llm, meter, item.question, response.answer, item.reference_answer

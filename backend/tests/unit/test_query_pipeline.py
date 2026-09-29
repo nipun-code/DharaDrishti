@@ -92,6 +92,7 @@ class FakeRetriever:
             section_refs=[],
             direct=self.direct,
             final=[*self.direct, *self.final],
+            context=[*self.direct, *self.final],
         )
 
 

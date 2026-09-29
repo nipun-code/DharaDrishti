@@ -70,13 +70,21 @@ class Settings(BaseSettings):
     reranker_model_name: str = "BAAI/bge-reranker-base"
     reranker_max_length: int = Field(default=512, ge=64)
     reranker_batch_size: int = Field(default=16, ge=1)
+    # Long chunks are re-ranked in word windows so text past the model's max_length still
+    # counts. Short windows let a clause be judged on its own. 0 = no windowing.
+    rerank_window_words: int = Field(default=120, ge=0)
+    rerank_window_overlap_words: int = Field(default=30, ge=0)
+    # Final order = RRF of the search order and the re-ranker's order (False: re-ranker only).
+    rerank_blend_with_search: bool = True
     retrieval_candidates: int = Field(
         default=20, ge=1, le=200, description="Per search, per query."
     )
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
-    rerank_candidates: int = Field(default=20, ge=1, le=200)
+    rerank_candidates: int = Field(default=10, ge=1, le=200)  # CPU cost grows linearly
     rrf_k: int = Field(default=60, ge=1)
     section_lookup_max_chunks: int = Field(default=3, ge=1, le=20)
+    # Pieces read per retrieved section when building the answer context (0 = no expansion).
+    section_context_max_chunks: int = Field(default=6, ge=0, le=50)
     max_section_refs: int = Field(default=5, ge=1, le=20)
     hnsw_ef_search: int = Field(default=100, ge=10, le=1000)
 

@@ -12,6 +12,10 @@ PAGE_NUMBER_RE = re.compile(
     r"^(?:page\s*)?[-–—]?\s*\d{1,4}\s*[-–—]?(?:\s*(?:of|/)\s*\d{1,4})?$", re.IGNORECASE
 )
 
+# India Code PDFs carry an "IndiaCode" watermark that text extraction drops at arbitrary points,
+# often inside a word ("insultIndiaCodemodesty"). The token never occurs in statute text.
+WATERMARK_RE = re.compile(r"IndiaCode")
+
 EdgeKey = tuple[str, int, str]  # ("t" | "b", position from top/bottom, normalized text)
 
 
@@ -82,6 +86,8 @@ def clean_pages(
             keys = _edge_keys(lines, index, edge_lines)
             if keys and (PAGE_NUMBER_RE.match(line) or any(k in repeated for k in keys)):
                 continue
-            kept.append(line)
+            text = " ".join(WATERMARK_RE.sub(" ", line).split())
+            if text:
+                kept.append(text)
         cleaned.append(PageText(number=page.number, text="\n".join(kept)))
     return cleaned

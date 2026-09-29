@@ -1,12 +1,16 @@
 """HybridRetriever orchestration with an in-memory search backend (no database)."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 import pytest
 
 from app.core.config import Settings
 from app.db.models.enums import ActStatus
+from app.services.retrieval.expansion import join_pieces
 from app.services.retrieval.hybrid import HybridRetriever
+from app.services.retrieval.reranker import text_windows
+from app.services.retrieval.section_lookup import strip_act_names
 from app.services.retrieval.types import (
     CandidateSource,
     ChunkHit,
@@ -250,3 +254,137 @@ async def test_on_stage_reports_reranking_only_when_it_happens(retriever: Hybrid
     await retriever.retrieve("widget", mode=RetrievalMode.HYBRID_RERANK, on_stage=stages.append)
 
     assert stages == ["reranking"]
+
+
+# ---------------------------------------------------------------- whole-section context
+def piece(chunk_id: int, text: str, page: int) -> ChunkRecord:
+    return replace(record(chunk_id, text, section="9005"), page_start=page, page_end=page)
+
+
+async def test_context_joins_all_pieces_of_a_retrieved_section(
+    backend: FakeBackend, retriever: HybridRetriever
+) -> None:
+    first = piece(10, "(1) Opening words of the section.\nMiddle clause one.", 5)
+    second = piece(11, "Middle clause one.\nIllustration text here.", 6)
+    third = piece(12, "Illustration text here.\n(2) Placeholder penalty clause.", 7)
+    backend.sections[("BNS", "9005")] = [first, second, third]
+    backend.keyword_results["penalty"] = [third, first, A]
+
+    result = await retriever.retrieve("penalty", mode=RetrievalMode.KEYWORD)
+
+    assert ids(result.final) == [12, 10, 1]  # ranking itself is untouched
+    assert ids(result.context) == [12, 1]  # one entry per section, best-ranked piece first
+    joined = result.context[0].chunk
+    assert joined.text == (
+        "(1) Opening words of the section.\nMiddle clause one.\n"
+        "Illustration text here.\n(2) Placeholder penalty clause."
+    )
+    assert (joined.page_start, joined.page_end, joined.subsection) == (5, 7, None)
+    assert result.context[1].chunk == A  # single-piece section unchanged
+
+
+def test_join_keeps_first_line_that_is_not_an_overlap() -> None:
+    first = piece(20, "Alpha words.", 1)
+    second = piece(21, "Fresh line.\nMore text.", 1)
+
+    assert join_pieces([first, second]).text == "Alpha words.\nFresh line.\nMore text."
+
+
+async def test_context_expansion_can_be_disabled(
+    backend: FakeBackend, embedder: FakeQueryEmbedder, reranker: FakeReranker, settings: Settings
+) -> None:
+    retriever = HybridRetriever(
+        backend, embedder, reranker, settings.model_copy(update={"section_context_max_chunks": 0})
+    )
+
+    result = await retriever.retrieve("widget", mode=RetrievalMode.KEYWORD)
+
+    assert ids(result.context) == ids(result.final)
+    assert backend.section_calls == []
+
+
+# ---------------------------------------------------------------- long chunks and act names
+async def test_long_chunk_is_reranked_by_its_best_window(
+    backend: FakeBackend, embedder: FakeQueryEmbedder, settings: Settings
+) -> None:
+    reranker = FakeReranker()
+    retriever = HybridRetriever(
+        backend,
+        embedder,
+        reranker,
+        settings.model_copy(
+            update={
+                "rerank_window_words": 6,
+                "rerank_window_overlap_words": 2,
+                "rerank_blend_with_search": False,  # order by the re-ranker alone
+            }
+        ),
+    )
+    long = record(30, " ".join(["filler"] * 12) + " placeholder penalty clause")
+    short = record(31, "placeholder penalty only")
+    backend.keyword_results["placeholder penalty clause"] = [short, long]
+    backend.vector_results = []
+
+    result = await retriever.retrieve("placeholder penalty clause")
+
+    assert ids(result.final) == [30, 31]
+    assert result.final[0].rerank_score == 1.0  # the last window holds every query word
+    assert reranker.calls[-1][1] == 5  # 15 words -> four windows, plus the short chunk
+
+
+def test_text_windows_overlap_and_cover_the_end() -> None:
+    words = [f"w{i}" for i in range(10)]
+
+    windows = text_windows(" ".join(words), 4, 1)
+
+    assert windows == ["w0 w1 w2 w3", "w3 w4 w5 w6", "w6 w7 w8 w9"]
+    assert text_windows("short text", 4, 1) == ["short text"]
+    assert text_windows(" ".join(words), 0, 0) == [" ".join(words)]
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        ("What is the punishment for theft in BNS?", "What is the punishment for theft in ?"),
+        ("cheating under the Indian Penal Code, 1860", "cheating under the"),
+        ("arrest powers in B.N.S.S.", "arrest powers in"),
+        ("BNS", "BNS"),  # nothing would be left: keep the phrase
+    ],
+)
+def test_strip_act_names(phrase: str, expected: str) -> None:
+    assert strip_act_names(phrase) == expected
+
+
+async def test_keyword_search_ignores_act_names(
+    retriever: HybridRetriever, backend: FakeBackend
+) -> None:
+    await retriever.retrieve("widget in BNS", mode=RetrievalMode.KEYWORD)
+
+    assert [call[0] for call in backend.keyword_calls] == ["widget in"]
+
+
+@pytest.mark.parametrize(("blend", "expected"), [(True, [40, 42]), (False, [42, 41])])
+async def test_final_order_blends_search_rank_with_rerank(
+    backend: FakeBackend,
+    embedder: FakeQueryEmbedder,
+    settings: Settings,
+    blend: bool,
+    expected: list[int],
+) -> None:
+    retriever = HybridRetriever(
+        backend,
+        embedder,
+        FakeReranker(),
+        settings.model_copy(update={"rerank_blend_with_search": blend}),
+    )
+    top_by_search = record(40, "no query words here")
+    middle = record(41, "alpha only")
+    top_by_reranker = record(42, "alpha beta")
+    backend.keyword_results["alpha beta"] = [top_by_search, middle, top_by_reranker]
+    backend.vector_results = []
+
+    result = await retriever.retrieve("alpha beta", top_k=2)
+
+    # Search put 40 first, the re-ranker put it last; blending keeps it in the top k.
+    assert ids(result.final) == expected
+    assert result.final[0].rerank_score is not None

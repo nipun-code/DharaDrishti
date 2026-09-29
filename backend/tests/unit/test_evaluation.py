@@ -144,6 +144,7 @@ class ScriptedRetriever:
             section_refs=[],
             direct=[],
             final=final,
+            context=final,
         )
 
 

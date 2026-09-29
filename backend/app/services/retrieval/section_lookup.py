@@ -50,6 +50,7 @@ _ALIAS = (
     + r")(?![A-Za-z])"
 )
 _YEAR = r"(?:\s*,?\s*(?:18|19|20)\d{2}\b)?"
+_ACT_NAME_RE = re.compile(rf"\b{_ALIAS}{_YEAR}", re.IGNORECASE)
 _NUM = r"\d{1,4}[A-Za-z]{0,3}(?:\s*\(\s*[0-9A-Za-z]{1,4}\s*\))*"
 _NUMLIST = rf"(?P<nums>{_NUM}(?:\s*(?:,|/|&|\band\b|\bor\b)\s*{_NUM})*)"
 _SEC = r"(?P<sec>\b(?:sections?|secs?|ss?)\.?)"
@@ -113,3 +114,13 @@ def _refs(code: str, nums: str, raw: str, has_section_word: bool) -> Iterable[Se
         if not has_section_word and not sub and _YEAR_RE.match(base):
             continue
         yield SectionRef(act_code=code, section=base, subsection=sub, raw=raw.strip())
+
+
+def strip_act_names(text: str) -> str:
+    """Remove act names/codes ("BNS", "Indian Penal Code, 1860") from a search phrase.
+
+    Full-text search ANDs every word, and act codes never appear in section text, so
+    "punishment for theft in BNS" would match nothing. Returns `text` unchanged if nothing
+    would be left."""
+    stripped = " ".join(_ACT_NAME_RE.sub(" ", text).split())
+    return stripped or text

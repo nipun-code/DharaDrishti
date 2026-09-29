@@ -16,6 +16,21 @@ class Reranker(Protocol):
     def score(self, query: str, passages: Sequence[str]) -> list[float]: ...
 
 
+def text_windows(text: str, size: int, overlap: int) -> list[str]:
+    """Split `text` into windows of at most `size` words, each overlapping the previous by
+    `overlap` words. `size` 0 (or text that already fits) gives the whole text."""
+    words = text.split()
+    if size <= 0 or len(words) <= size:
+        return [text]
+    step = max(size - overlap, 1)
+    windows = []
+    for start in range(0, len(words), step):
+        windows.append(" ".join(words[start : start + size]))
+        if start + size >= len(words):
+            break
+    return windows
+
+
 def _sigmoid(x: float) -> float:
     if x >= 0:
         return 1.0 / (1.0 + math.exp(-x))
